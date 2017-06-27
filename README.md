@@ -17,7 +17,7 @@ cluster
 
 A sample CSV file is included under resources which you can use. Copy this to a Cassandra node and run cqlsh and use the following `COPY` command:
 
-    COPY txns_demo.transactions (acct_id,transaction_ts,transaction_id,transaction_amount,transaction_type,description,ttl_date) FROM 'import.csv' WITH HEADER = true ;
+    COPY txns_demo.transactions (acct_id,transaction_ts,transaction_id,transaction_amount,transaction_type,description,ttl_date) FROM 'sample-import.csv' WITH HEADER = true ;
 
 ## Building
 The project is built using sbt. In order to compile locally run sbt:
