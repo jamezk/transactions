@@ -1,8 +1,25 @@
+/*
+ * Copyright 2017 Pragmasol
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.pragmasol.demo
 
 import java.util.UUID
 
 import com.datastax.spark.connector._
+import com.datastax.spark.connector.writer.WriteConf
 import com.pragmasol.demo.util.ArgHelper
 import org.apache.spark.{SparkConf, SparkContext}
 import org.joda.time.{DateTime, DateTimeZone}
@@ -10,7 +27,7 @@ import org.joda.time.{DateTime, DateTimeZone}
 import scala.collection.immutable.Set
 
 /**
- * Created by jamezk on 09/06/2017.
+ * Created on 09/06/2017.
  */
 object SparkRollUp extends App with ArgHelper {
 
@@ -21,22 +38,24 @@ object SparkRollUp extends App with ArgHelper {
     .setAppName("spark-cass-balance-calculator")
     .set("spark.executor.memory", getArgOrDefault("executor.memory", "512m"))
     .set("spark.default.parallelism", getArgOrDefault("processing.cores", "2"))
-    .set("spark.cassandra.connection.host", getArgOrDefault("cassandra.host", "192.168.56.101"))
+    .set("spark.cassandra.connection.host", getArgOrDefault("cassandra.host", "127.0.0.1"))
   //Date now
-  val dtTo = DateTime.now(DateTimeZone.forID("Europe/London")).plusDays(2)
-  //Date two months previous, assumption here is that a balance calc has already been performed in that period
-  //or the start of the account history is within that time
-  val dtFrom = dtTo.minusMonths(2)
+  val dt_to = DateTime.now(DateTimeZone.forID("Europe/London"))
+  /*
+   * Date two months previous, assumption here is that a balance calc has already been performed in that period
+   * or the start of the account history is within that time
+   */
+  val dt_from = dt_to.minusMonths(2)
 
   val sc = new SparkContext(conf)
 
   val txns_rdd = sc.cassandraTable[Transaction]("txns_demo","transactions")
                     .select("acct_id","transaction_ts",
                             "transaction_id","transaction_type",
-                            "transaction_amount","pending_txns","ttl_date")
-                    .where("transaction_ts >= ? and transaction_ts < ?",dtFrom,dtTo)
+                            "transaction_amount","pending_txns","ttl_date","description")
+                    .where("transaction_ts >= ? and transaction_ts < ?",dt_from,dt_to)
   /*
-   * Now use spanBy(..) on account id so our partitions are specific to individual token ranges - efficient when running
+   * Now use spanBy(..) on account id so our partitions are specific to individual tokens - efficient when running
    * multiple executors on different C* nodes as subsequent filtering will occur locally where the data lives,
    * without shuffling
    */
@@ -56,7 +75,7 @@ object SparkRollUp extends App with ArgHelper {
     val txn = txns.dropWhile(_.transaction_type != "BALANCE_CALC").headOption
     txn match {
       case Some(t) =>
-        (acct_id,(t.transaction_amount,t.pending_txns.filter(_.valid_until.after(dtTo.toDate))))
+        (acct_id,(t.transaction_amount,t.pending_txns.filter(_.valid_until.after(dt_to.toDate))))
       case None =>
         (acct_id,(BigDecimal.valueOf(0l),Set.empty[Pending]))
     }
@@ -81,9 +100,9 @@ object SparkRollUp extends App with ArgHelper {
       }
     }
     //Pending Auth Txns - Filter out any whose ttl_date has already passed as they're no longer valid
-    val pending_txns = txns.filter { t =>( t.transaction_type == "PENDING_AUTH") && t.ttl_date.get.after(dtTo.toDate) }
+    val pending_txns = txns.filter { t =>( t.transaction_type == "PENDING_AUTH") && t.ttl_date.get.after(dt_to.toDate) }
 
-    //Sum the total transaction amount and create a set of any pending transactions
+    //Sum the total transaction amount and create an accompanying set of any pending transactions
     (acct_id,
       running_txns.map { t => t.transaction_amount }.reduceOption((a,b) => a+b).getOrElse(BigDecimal.valueOf(0l)),
       pending_txns.map { p => Pending(p.transaction_id,p.transaction_amount,p.ttl_date.get)}.toSet
@@ -93,8 +112,15 @@ object SparkRollUp extends App with ArgHelper {
     //Create a balance record
     val (acct_id, running_balance_amt, pending_txns) = r
     //Format the output so it aligns with the columns we're going to save
-    (acct_id, (dtTo.toDate, UUIDAcctAndDate(acct_id,dtTo,"BALANCE_CALC"),
-      "BalanceCalculator Calc Record", running_balance_amt, pending_txns, "BALANCE_CALC"))
+    (acct_id,
+      Transaction(acct_id,
+                  dt_to.toDate,
+                  UUIDAcctAndDate(acct_id,dt_to,"BALANCE_CALC"),
+                  "BALANCE_CALC",
+                  running_balance_amt,
+                  pending_txns,
+                  None,
+                  "BalanceCalculator Calc Record"))
 
   }
   /*
@@ -103,10 +129,18 @@ object SparkRollUp extends App with ArgHelper {
    */
   summed_txns.join(previous_balance).map { x =>
     val (acct_id, (summed, previous)) = x
-    (acct_id,summed._1,summed._2,summed._3,summed._4+previous._1,previous._2++summed._5,summed._6)
-  }.saveToCassandra("txns_demo","transactions",
-    SomeColumns("acct_id","transaction_ts","transaction_id","description","transaction_amount","pending_txns","transaction_type"))
-
+    val previous_pending_txns = previous._2
+    Transaction(summed.acct_id,
+                summed.transaction_ts,
+                summed.transaction_id,
+                summed.transaction_type,
+                summed.transaction_amount,
+                previous_pending_txns++summed.pending_txns,
+                summed.ttl_date,
+                summed.description)
+  }.saveToCassandra(keyspaceName="txns_demo",tableName="transactions",
+    SomeColumns("acct_id","transaction_ts","transaction_id","transaction_type","transaction_amount","pending_txns","ttl_date","description"),
+    writeConf=WriteConf(ignoreNulls=true))
 
 
   /**

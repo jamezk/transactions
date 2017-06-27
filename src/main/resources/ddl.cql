@@ -1,6 +1,4 @@
-
 CREATE KEYSPACE txns_demo WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}  AND durable_writes = true;
-
 
 CREATE TYPE txns_demo.pending (
     transaction_id uuid,
@@ -8,13 +6,11 @@ CREATE TYPE txns_demo.pending (
     valid_until date
 );
 
-
 CREATE TABLE txns_demo.transactions (
     acct_id text,
     transaction_ts timestamp,
     transaction_id uuid,
     available_amount decimal,
-    balance_pending set<frozen<pending>>,
     cc_auth_code text,
     cc_merchant_category text,
     cc_merchant_name text,
@@ -24,12 +20,12 @@ CREATE TABLE txns_demo.transactions (
     cheque_number text,
     currency_code text,
     description text,
+    pending_txns set<frozen<pending>>,
     transaction_amount decimal,
     transaction_type text,
     ttl_date date,
     PRIMARY KEY (acct_id, transaction_ts, transaction_id)
-) WITH CLUSTERING ORDER BY (transaction_date DESC, transaction_ts DESC, transaction_id ASC);
-
+) WITH CLUSTERING ORDER BY (transaction_ts DESC, transaction_id ASC);
 
 CREATE TABLE txns_demo.transaction_history (
     acct_id text,
@@ -45,16 +41,12 @@ CREATE TABLE txns_demo.transaction_history (
     cc_txn_type text,
     cheque_number text,
     currency_code text,
-    description text,
+    description text,clear
     transaction_amount decimal,
     transaction_type text,
     ttl_date date,
     PRIMARY KEY ((acct_id, transaction_date), transaction_ts, transaction_id)
-) WITH CLUSTERING ORDER BY (transaction_date DESC, transaction_ts DESC, transaction_id ASC);
-
-
-
-
+) WITH CLUSTERING ORDER BY (transaction_ts DESC, transaction_id ASC);
 
 CREATE OR REPLACE FUNCTION txns_demo.balance_inc(previous tuple<decimal, decimal>, amt decimal, txn_type text, ttl_date date);
     CALLED ON NULL INPUT
@@ -67,14 +59,16 @@ CREATE OR REPLACE FUNCTION txns_demo.balance_inc(previous tuple<decimal, decimal
         }
         return previous;';
 
-
-CREATE OR REPLACE FUNCTION balance_final ( state tuple<decimal,decimal> ) CALLED ON NULL INPUT RETURNS tuple<decimal,decimal> LANGUAGE java AS
-  'state.setDecimal(1,state.getDecimal(0).add(state.getDecimal(1)));
+CREATE OR REPLACE FUNCTION txns_demo.balance_final ( state tuple<decimal,decimal> )
+    CALLED ON NULL INPUT
+    RETURNS tuple<decimal,decimal>
+    LANGUAGE java
+    AS 'state.setDecimal(1,state.getDecimal(0).add(state.getDecimal(1)));
    return state;';
 
-
-CREATE OR REPLACE AGGREGATE balance (decimal, text, date)
-SFUNC balance_inc STYPE tuple<decimal,decimal> FINALFUNC balance_final INITCOND (0,0);
-
-
+CREATE AGGREGATE txns_demo.balance(decimal, text, date)
+    SFUNC balance_inc
+    STYPE tuple<decimal, decimal>
+    FINALFUNC balance_final
+    INITCOND (0, 0);
 

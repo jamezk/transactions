@@ -4,11 +4,6 @@ version := "0.1"
 
 scalaVersion := "2.11.11"
 
-libraryDependencies += "org.apache.spark" %% "spark-core" % "2.1.0"
-
-resolvers += "justwrote" at "http://repo.justwrote.it/releases/"
-
-
 val SparkVersion = "2.1.0"
 val SparkCassandraVersion = "2.0.2"
 
@@ -30,4 +25,5 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql" % SparkVersion
 )
 
+//For data generator
 libraryDependencies += "com.github.javafaker" % "javafaker" % "0.13"
