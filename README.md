@@ -13,8 +13,13 @@ and functions. Copy this file to one of your Cassandra nodes and run:
 Change the definition appropriately to increase the replication factor and/or strategy (if you're running with a multi-dc)
 cluster
 
+## Importing sample data
 
-##Building
+A sample CSV file is included under resources which you can use. Copy this to a Cassandra node and run cqlsh and use the following `COPY` command:
+
+    COPY txns_demo.transactions (acct_id,transaction_ts,transaction_id,transaction_amount,transaction_type,description,ttl_date) FROM 'import.csv' WITH HEADER = true ;
+
+## Building
 The project is built using sbt. In order to compile locally run sbt:
 
     sbt
@@ -23,9 +28,9 @@ Then
 
     compile
     
-##Running
+## Running
 
-###Spark Roll Up
+### Spark Roll Up
 To run the Spark roll up, from the sbt prompt type:
 
     runMain com.pragmasol.demo.SparkRollUp "cassandra.host=192.168.56.101"
