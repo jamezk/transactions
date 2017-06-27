@@ -83,7 +83,7 @@ public class BalanceRetriever {
         CassandraSession.init("192.168.56.101");
         BalanceRetriever retriever = new BalanceRetriever(CassandraSession.getSession());
 
-        BalanceCalculator balance = retriever.getCurrentBalance(DateTime.now().plusDays(2),"38976122","911241");
+        BalanceCalculator balance = retriever.getCurrentBalance(DateTime.now().plusDays(2),args[0],args[1]);
         System.out.println(balance.toString());
 
         CassandraSession.close();

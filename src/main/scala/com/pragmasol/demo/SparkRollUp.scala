@@ -129,12 +129,12 @@ object SparkRollUp extends App with ArgHelper {
    */
   summed_txns.join(previous_balance).map { x =>
     val (acct_id, (summed, previous)) = x
-    val previous_pending_txns = previous._2
+    val (previous_balance, previous_pending_txns) = previous
     Transaction(summed.acct_id,
                 summed.transaction_ts,
                 summed.transaction_id,
                 summed.transaction_type,
-                summed.transaction_amount,
+                previous_balance+summed.transaction_amount,
                 previous_pending_txns++summed.pending_txns,
                 summed.ttl_date,
                 summed.description)
